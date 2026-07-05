@@ -1,0 +1,44 @@
+{
+  "name": "sentinel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sentinel — The Factory SRE. Autonomous asset-downtime & maintenance copilot built on Mastra + Qdrant + Enkrypt AI. TypeScript only.",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "seed": "tsx scripts/seed.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "history:check": "tsx scripts/history-check.ts",
+    "qdrant:verify": "tsx scripts/qdrant-verify.ts",
+    "mcp:cmms": "tsx src/mcp/cmms-server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mastra/core": "^1.49.0",
+    "@mastra/libsql": "^1.15.0",
+    "@mastra/mcp": "^1.13.0",
+    "@mastra/observability": "^1.15.2",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
+    "@opentelemetry/resources": "^2.9.0",
+    "@opentelemetry/sdk-trace-node": "^2.9.0",
+    "@qdrant/js-client-rest": "^1.13.0",
+    "jose": "^5.9.6",
+    "next": "14.2.21",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "^2.15.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.9",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
