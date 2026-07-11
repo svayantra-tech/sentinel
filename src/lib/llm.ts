@@ -23,6 +23,12 @@ export interface ChatResult {
   fallbackUsed: boolean;
 }
 
+// Discriminated outcome so callers can report WHY a live call fell back
+// (HTTP status / provider / model) instead of silently degrading to scripted.
+export type ChatOutcome =
+  | { ok: true; result: ChatResult }
+  | { ok: false; reason: string; status: number | null; provider: string | null; model: string | null };
+
 interface ProviderCfg { baseUrl: string; keys: string[]; model: string; name: string }
 
 function providers(): ProviderCfg[] {
@@ -62,13 +68,23 @@ export async function chat(opts: {
   system: string; user: string;
   correlationId: string; runId?: string; step: string;
   json?: boolean; temperature?: number; maxTokens?: number;
-}): Promise<ChatResult | null> {
+}): Promise<ChatOutcome> {
   const started = Date.now();
   const hash = promptHash(opts.system);
   const provs = providers();
+  if (!provs.length) {
+    return { ok: false, reason: 'no LLM provider configured (empty LLM_API_KEYS)', status: null, provider: null, model: null };
+  }
+
+  // Track the last failure so the caller can report WHY it fell back.
+  let lastStatus: number | null = null;
+  let lastProvider: string | null = null;
+  let lastModel: string | null = null;
+  let lastReason = 'no response';
 
   for (let pi = 0; pi < provs.length; pi++) {
     const p = provs[pi];
+    lastProvider = p.name; lastModel = p.model;
     // Try every key on this provider before falling through.
     for (let attempt = 0; attempt < p.keys.length; attempt++) {
       const key = nextKey(p);
@@ -88,15 +104,15 @@ export async function chat(opts: {
           }),
           signal: AbortSignal.timeout(45_000),
         });
-        if (res.status === 429 || res.status >= 500) continue; // rotate key
-        if (!res.ok) continue;
+        if (res.status === 429 || res.status >= 500) { lastStatus = res.status; lastReason = `HTTP ${res.status}`; continue; } // rotate key
+        if (!res.ok) { lastStatus = res.status; lastReason = `HTTP ${res.status}`; continue; }
         const data = (await res.json()) as {
           choices: Array<{ message: { content: string } }>;
           usage?: { prompt_tokens?: number; completion_tokens?: number };
           model?: string;
         };
         const text = data.choices?.[0]?.message?.content ?? '';
-        if (!text) continue;
+        if (!text) { lastReason = 'empty response body'; continue; }
         const result: ChatResult = {
           text,
           model: data.model || p.model,
@@ -112,13 +128,46 @@ export async function chat(opts: {
           tokensIn: result.tokensIn, tokensOut: result.tokensOut,
           promptHash: hash, fallbackUsed: result.fallbackUsed,
         });
-        return result;
-      } catch {
+        return { ok: true, result };
+      } catch (err) {
+        lastReason = (err as Error)?.name === 'TimeoutError' ? 'timeout (45s)' : `network: ${String((err as Error)?.message ?? err).slice(0, 80)}`;
         continue; // network/timeout → next key
       }
     }
   }
-  return null; // caller falls back to the deterministic path
+  return { ok: false, reason: lastReason, status: lastStatus, provider: lastProvider, model: lastModel };
+}
+
+// ── Live-mode health banner (TASK 1.3) ───────────────────────────────────────
+// When DEMO_MODE=live, ping the provider chain ONCE so the operator learns the
+// LLM is unreachable BEFORE demoing — rather than silently running scripted.
+let healthChecked = false;
+function liveBanner(reason: string): string {
+  const bar = '#'.repeat(78);
+  return `\n${bar}\n####  LIVE MODE REQUESTED BUT LLM UNREACHABLE (${reason}) — RUNNING SCRIPTED  ####\n${bar}\n`;
+}
+export async function healthCheckLLM(): Promise<void> {
+  if (healthChecked) return;
+  healthChecked = true;
+  if (demoMode() !== 'live') return;
+  const provs = providers();
+  if (!provs.length) { process.stderr.write(liveBanner('no LLM provider configured (empty LLM_API_KEYS)')); return; }
+  let lastReason = 'unreachable';
+  for (const p of provs) {
+    try {
+      const res = await fetch(`${p.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${p.keys[0]}` },
+        body: JSON.stringify({ model: p.model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) return; // a provider is reachable → healthy, no banner
+      lastReason = `HTTP ${res.status}`;
+    } catch (err) {
+      lastReason = (err as Error)?.name === 'TimeoutError' ? 'timeout' : `unreachable: ${String((err as Error)?.message ?? err).slice(0, 60)}`;
+    }
+  }
+  process.stderr.write(liveBanner(lastReason));
 }
 
 /** Strip code fences and extract the outermost JSON object safely. */

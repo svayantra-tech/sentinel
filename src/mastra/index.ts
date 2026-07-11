@@ -15,11 +15,15 @@ import type { FaultInput, SessionUser, SentinelRunView, RunStage } from '@/lib/t
 import { newCorrelationId } from '@/lib/telemetry';
 import { createRunView, attachHandle, getRun, patchRun, registerRunView, listRuns } from '@/lib/run-registry';
 import { ensureSeeded } from '@/lib/memory';
+import { healthCheckLLM } from '@/lib/llm';
 
 const g = globalThis as unknown as { __sentinelMastra?: Mastra };
 
 export function getMastra(): Mastra {
   if (!g.__sentinelMastra) {
+    // TASK 1.3: on first Mastra bootstrap, if DEMO_MODE=live but the LLM chain is
+    // unreachable, print a stderr banner so the operator knows before demoing.
+    void healthCheckLLM();
     g.__sentinelMastra = new Mastra({
       workflows: { sentinelWorkflow },
       storage: new LibSQLStore({

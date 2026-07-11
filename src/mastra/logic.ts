@@ -7,7 +7,7 @@
 // deterministic path is auditable line-by-line.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { DraftRunbook, FaultInput, RetrievedContext, ScoreCard } from '@/lib/types';
-import { chat, parseJsonLoose, demoMode } from '@/lib/llm';
+import { chat, parseJsonLoose, demoMode, healthCheckLLM } from '@/lib/llm';
 import {
   RUNBOOK_SYSTEM, runbookUserPrompt,
   POSTMORTEM_SYSTEM, postMortemUserPrompt,
@@ -42,12 +42,14 @@ export async function draftRunbookLogic(opts: {
   correlationId: string; runId?: string;
   fault: FaultInput; context: RetrievedContext;
   refineFeedback?: string[]; previous?: DraftRunbook;
-}): Promise<{ runbook: DraftRunbook; source: 'llm' | 'scripted' }> {
+}): Promise<{ runbook: DraftRunbook; source: 'live' | 'scripted'; fallbackReason?: string }> {
   const blocks = contextToPromptBlocks(opts.context);
+  const isRefine = Boolean(opts.refineFeedback?.length && opts.previous);
+  let fallbackReason: string | undefined;
 
   if (demoMode() === 'live') {
-    const isRefine = Boolean(opts.refineFeedback?.length && opts.previous);
-    const res = await chat({
+    await healthCheckLLM(); // one-time boot banner to stderr if the chain is down
+    const outcome = await chat({
       system: isRefine ? HYPOTHESIS_REFINE_SYSTEM : RUNBOOK_SYSTEM,
       user: isRefine
         ? `FAILED DRAFT:\n${JSON.stringify(opts.previous)}\n\nSCORER REASONS:\n- ${opts.refineFeedback!.join('\n- ')}\n\nOEM EXTRACTS:\n${blocks.oem}`
@@ -56,15 +58,27 @@ export async function draftRunbookLogic(opts: {
       step: isRefine ? 'refine-runbook' : 'draft-runbook',
       json: true, temperature: 0.15, maxTokens: 1600,
     });
-    if (res) {
-      const parsed = parseJsonLoose<unknown>(res.text);
+    if (outcome.ok) {
+      const parsed = parseJsonLoose<unknown>(outcome.result.text);
       const valid = DraftRunbookSchema.safeParse(parsed);
-      if (valid.success) return { runbook: valid.data, source: 'llm' };
+      if (valid.success) return { runbook: valid.data, source: 'live' };
+      fallbackReason = `LLM output failed schema validation (${outcome.result.model})`;
+    } else {
+      fallbackReason = outcome.status ? `LLM ${outcome.status}` : outcome.reason;
     }
-    // fall through to deterministic path — the run must never dead-end (NFR-04)
+    // LOUD (TASK 1.2): live was expected but we are degrading to the deterministic
+    // drafter — must be impossible to miss on stage. Never dead-ends (NFR-04).
+    const prov = outcome.ok ? outcome.result.provider : (outcome.provider ?? 'n/a');
+    const model = outcome.ok ? outcome.result.model : (outcome.model ?? 'n/a');
+    console.error(`\n[LLM-FALLBACK] ❌ DEMO_MODE=live but drafter FELL BACK — reason=${fallbackReason} · provider=${prov} · model=${model}  ->  FALLING BACK TO SCRIPTED\n`);
   }
 
-  return { runbook: scriptedRunbook(opts.fault, opts.context), source: 'scripted' };
+  // TASK 2 (opt-in): DEMO_SHOW_REFINE=1 emits a genuinely deficient FIRST draft
+  // (missing verifications) so the REAL completeness scorer fails attempt 1 and
+  // the REAL self-refine loop produces the complete draft on attempt 2. The
+  // refine call (isRefine) always yields the complete draft. OFF by default.
+  const deficient = process.env.DEMO_SHOW_REFINE === '1' && !isRefine;
+  return { runbook: scriptedRunbook(opts.fault, opts.context, { deficient }), source: 'scripted', fallbackReason };
 }
 
 // Deterministic generator. NOTE the deliberate fault injection: in scripted
@@ -72,7 +86,7 @@ export async function draftRunbookLogic(opts: {
 // safety-gate demonstration is reproducible on every demo run. This mirrors
 // chaos-engineering practice — we prove the gate works by feeding it a known
 // failure. Fully documented in docs/DEMO_SCRIPT.md; live mode has no injection.
-export function scriptedRunbook(fault: FaultInput, ctx: RetrievedContext): DraftRunbook {
+export function scriptedRunbook(fault: FaultInput, ctx: RetrievedContext, opts?: { deficient?: boolean }): DraftRunbook {
   const vetted = ctx.runbooks[0]?.payload;
   const bestIncident = ctx.incidents[0]?.payload;
   const hypothesis = bestIncident
@@ -102,6 +116,14 @@ export function scriptedRunbook(fault: FaultInput, ctx: RetrievedContext): Draft
     return s;
   });
 
+  // TASK 2 (opt-in demo): a GENUINELY deficient first draft — strip the
+  // verification criteria off the middle steps so scoreCompleteness legitimately
+  // drops below the 0.75 threshold (weak/missing verification, −0.1 each). The
+  // self-refine attempt (deficient=false) restores them; nothing is faked.
+  if (opts?.deficient) {
+    steps = steps.map((s, i) => (i >= 1 && i <= 3 ? { ...s, verification: '' } : s));
+  }
+
   return {
     title: vetted ? `${vetted.title} — ${fault.equipmentId}` : `Corrective maintenance — ${fault.equipmentId} ${fault.faultCode}`,
     faultHypothesis: hypothesis,
@@ -122,9 +144,9 @@ export async function executeLogic(runbook: DraftRunbook): Promise<{ executedSte
 export async function postMortemLogic(opts: {
   correlationId: string; runId?: string;
   fault: FaultInput; runbook: DraftRunbook; minutes: number; notes: string;
-}): Promise<{ text: string; source: 'llm' | 'scripted' }> {
+}): Promise<{ text: string; source: 'live' | 'scripted' }> {
   if (demoMode() === 'live') {
-    const res = await chat({
+    const outcome = await chat({
       system: POSTMORTEM_SYSTEM,
       user: postMortemUserPrompt({
         faultText: faultToText(opts.fault),
@@ -134,7 +156,9 @@ export async function postMortemLogic(opts: {
       correlationId: opts.correlationId, runId: opts.runId,
       step: 'draft-postmortem', temperature: 0.2, maxTokens: 700,
     });
-    if (res?.text) return { text: res.text.trim(), source: 'llm' };
+    if (outcome.ok && outcome.result.text.trim()) return { text: outcome.result.text.trim(), source: 'live' };
+    const reason = outcome.ok ? 'empty response' : (outcome.status ? `LLM ${outcome.status}` : outcome.reason);
+    console.error(`[LLM-FALLBACK] ❌ DEMO_MODE=live but post-mortem FELL BACK — reason=${reason}  ->  FALLING BACK TO SCRIPTED`);
   }
   const rb = opts.runbook;
   return {

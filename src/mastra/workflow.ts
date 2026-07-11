@@ -105,13 +105,19 @@ const draftAndScore = createStep({
       () => draftRunbookLogic({ correlationId: s.correlationId, runId: s.runId, fault: s.fault, context: ctx }),
     );
     patchRun(s.runId, { stage: 'RUNBOOK_DRAFTED', runbook: first.runbook },
-      `Runbook drafted (${first.source}) — ${first.runbook.steps.length} steps`);
+      `Runbook drafted (${first.source}${first.fallbackReason ? ` — fallback: ${first.fallbackReason}` : ''}) — ${first.runbook.steps.length} steps`);
 
     let runbook = first.runbook;
+    let attempts = 1;
     let card = await runScorers({ correlationId: s.correlationId, runId: s.runId, runbook, context: ctx, attempt: 1 });
 
     if (!card.pass) {
       // Self-refinement loop (one pass) — visible in traces as attempt 2 (FR-07).
+      const failing = (['relevance', 'safety', 'completeness'] as const).filter((d) => card[d] < 0.75);
+      // eslint-disable-next-line no-console
+      console.error(`[self-refine] attempt 1 FAILED (${failing.join(', ')} < 0.75) — invoking Mastra self-refine with scorer feedback`);
+      patchRun(s.runId, { runbook },
+        `⟳ Self-refine: attempt 1 below threshold (${failing.join(', ')}) — re-drafting with scorer feedback`);
       const second = await traceStep(
         { step: 'workflow.refine-runbook', kind: 'workflow', correlationId: s.correlationId, runId: s.runId, attrs: { attempt: 2 } },
         () => draftRunbookLogic({
@@ -120,11 +126,14 @@ const draftAndScore = createStep({
         }),
       );
       runbook = second.runbook;
+      attempts = 2;
       card = await runScorers({ correlationId: s.correlationId, runId: s.runId, runbook, context: ctx, attempt: 2 });
+      // eslint-disable-next-line no-console
+      console.error(`[self-refine] attempt 2 ${card.pass ? 'PASSED' : 'STILL BELOW THRESHOLD'} — completeness ${card.completeness}, safety ${card.safety}, relevance ${card.relevance}`);
     }
 
     patchRun(s.runId, { stage: 'SCORED', runbook, scorecard: card },
-      `Scorers — relevance ${card.relevance} · safety ${card.safety} · completeness ${card.completeness} · ${card.pass ? 'PASS' : 'BELOW THRESHOLD (proceeding to hard safety gate)'}`);
+      `Scorers (attempt ${attempts}) — relevance ${card.relevance} · safety ${card.safety} · completeness ${card.completeness} · ${card.pass ? 'PASS' : 'BELOW THRESHOLD (proceeding to hard safety gate)'}`);
     return { ...s, runbook, scorecard: card };
   },
 });
