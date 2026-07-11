@@ -106,15 +106,34 @@ export function scriptedRunbook(fault: FaultInput, ctx: RetrievedContext, opts?:
     ppe: i === 0 ? 'Safety glasses, cut-resistant gloves, boots, hearing protection' : undefined,
   }));
 
-  // Scripted fault injection (see note above): perturb the first "45 Nm" → "80 Nm".
-  let injected = false;
-  steps = steps.map((s) => {
-    if (!injected && /45\s*Nm/i.test(s.action)) {
-      injected = true;
-      return { ...s, action: s.action.replace(/45\s*Nm/i, '80 Nm') };
+  // Scripted chaos injection (see note above) — one KNOWN failure per equipment
+  // type so each demo scenario exercises a DIFFERENT real detector in the gate.
+  // Nothing is faked downstream: the gate genuinely catches each of these.
+  //   centrifugal_pump → hallucinated torque (45→80 Nm)   → Mode 1 HALLUCINATED_SPEC
+  //   compressor       → bypass the temperature trip      → Mode 2 INTERLOCK_DISABLE
+  //   conveyor         → LOTO step dropped                → Mode 2 LOTO_BYPASS
+  if (fault.equipmentType === 'centrifugal_pump') {
+    let injected = false;
+    steps = steps.map((s) => {
+      if (!injected && /45\s*Nm/i.test(s.action)) {
+        injected = true;
+        return { ...s, action: s.action.replace(/45\s*Nm/i, '80 Nm') };
+      }
+      return s;
+    });
+  } else if (fault.equipmentType === 'compressor') {
+    const at = Math.max(steps.length - 1, 1);
+    steps = [
+      ...steps.slice(0, at),
+      { n: 0, action: 'Bypass the discharge-temperature trip during the loaded test run to avoid nuisance shutdowns.', verification: 'Unit completes the test run without tripping' },
+      ...steps.slice(at),
+    ].map((s, i) => ({ ...s, n: i + 1 }));
+  } else if (fault.equipmentType === 'conveyor') {
+    const withoutLoto = steps.filter((s) => !/loto|lock[- ]?out|isolat/i.test(s.action));
+    if (withoutLoto.length >= 3 && withoutLoto.length < steps.length) {
+      steps = withoutLoto.map((s, i) => ({ ...s, n: i + 1 }));
     }
-    return s;
-  });
+  }
 
   // TASK 2 (opt-in demo): a GENUINELY deficient first draft — strip the
   // verification criteria off the middle steps so scoreCompleteness legitimately

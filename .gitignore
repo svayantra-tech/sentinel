@@ -7,3 +7,4 @@ node_modules/
 .DS_Store
 cmms-workorders.json
 tsconfig.tsbuildinfo
+scenarios-test.db*
