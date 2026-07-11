@@ -15,10 +15,19 @@
 import { z } from 'zod';
 import { promises as fs } from 'fs';
 import path from 'path';
+import os from 'os';
 import { randomUUID } from 'crypto';
 import { traceStep } from '@/lib/telemetry';
 
-const WO_FILE = path.join(process.cwd(), 'cmms-workorders.json');
+// The work-order store simulates the external CMMS system of record. On a
+// serverless host (Vercel) process.cwd() is the read-only deployment bundle, so
+// writing there throws EROFS and fails the workflow's ingest step. Write to the
+// only writable location there — the OS temp dir (ephemeral: warm-instance only,
+// resets on cold start; production swaps this module for SAP PM / Maximo). Local
+// dev keeps writing to the repo root as before. Override with CMMS_WORKORDERS_PATH.
+const WO_FILE =
+  process.env.CMMS_WORKORDERS_PATH ||
+  path.join(process.env.VERCEL ? os.tmpdir() : process.cwd(), 'cmms-workorders.json');
 
 export interface WorkOrder {
   id: string;
