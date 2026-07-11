@@ -19,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </a>
             <nav className="ml-auto flex items-center gap-1 text-sm">
               <a href="/" className="px-3 py-1.5 rounded-lg text-muted hover:text-teal hover:bg-dim/40">Operations</a>
+              <a href="/live" className="px-3 py-1.5 rounded-lg text-muted hover:text-teal hover:bg-dim/40">Live</a>
               <a href="/fleet" className="px-3 py-1.5 rounded-lg text-muted hover:text-teal hover:bg-dim/40">Fleet</a>
               <a href="/analytics" className="px-3 py-1.5 rounded-lg text-muted hover:text-teal hover:bg-dim/40">Insights</a>
               <a href="/history" className="px-3 py-1.5 rounded-lg text-muted hover:text-teal hover:bg-dim/40">History</a>
