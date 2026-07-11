@@ -230,7 +230,7 @@ function RunTheatre({ run, allRuns, onSelect }: {
               const years = run.context!.incidents.map((i) => Number(i.payload.timestamp.slice(0, 4))).filter(Boolean);
               const span = years.length ? `${Math.min(...years)}–${Math.max(...years)}` : '';
               return years.length ? (
-                <p className="text-[11px] text-teal mb-1">↳ {run.context!.incidents.length} similar incidents surfaced from {span} — across a 15-year corpus of {'~'}3,000 records.</p>
+                <p className="text-[11px] text-teal mb-1">↳ {run.context!.incidents.length} similar incidents surfaced from {span} — across a 15-year <span className="text-offwhite">synthesized</span> corpus of {'~'}3,000 cases modeled on real-world failure modes.</p>
               ) : null;
             })()}
             <p className="text-[11px] font-mono text-muted mb-3">
@@ -282,7 +282,7 @@ function RunTheatre({ run, allRuns, onSelect }: {
       {run.safety && (
         <div className={`panel p-4 ${blocked.length ? '!border-danger/70' : ''}`}>
           <h3 className="font-semibold text-sm mb-3">
-            Safety gate <span className="text-muted font-normal">· Enkrypt AI (cloud {run.safety.cloudUsed ? 'active' : 'offline — local deterministic rules held the line'}) + local physics engine</span>
+            Safety gate <span className="text-muted font-normal">· local physics engine (deterministic) + Enkrypt AI cloud ({run.safety.cloudUsed ? 'active, in parallel' : 'offline — local rules held the line'})</span>
           </h3>
           {blocked.length === 0 ? (
             <p className="text-teal text-sm">✓ All {run.runbook?.steps.length ?? 0} steps cleared — no hallucinated specs, LOTO ordering verified, authorisation confirmed.</p>
@@ -290,7 +290,7 @@ function RunTheatre({ run, allRuns, onSelect }: {
             <div className="space-y-3">
               {blocked.map((v, i) => (
                 <div key={i} className="rounded-lg border border-danger/70 bg-danger/10 p-4">
-                  <p className="font-mono text-danger font-bold text-sm mb-1">⛔ BLOCKED · {v.type}{v.stepN ? ` · step ${v.stepN}` : ''}</p>
+                  <p className="font-mono text-danger font-bold text-sm mb-1">⛔ BLOCKED · {v.type}{v.stepN ? ` · step ${v.stepN}` : ''} <span className="text-muted font-normal">· caught by {v.source === 'enkrypt' ? 'Enkrypt cloud' : 'local deterministic rules'}</span></p>
                   <p className="text-sm text-offwhite">{v.detail}</p>
                   {v.evidence && <p className="text-[11px] text-muted mt-2 font-mono">OEM evidence: “…{v.evidence.slice(0, 140)}…”</p>}
                   {v.correction && (
@@ -326,7 +326,10 @@ function RunTheatre({ run, allRuns, onSelect }: {
       {run.postMortem && (
         <div className="panel p-4">
           <h3 className="font-semibold text-sm mb-2">
-            Post-mortem <span className="text-muted font-normal">· bias-gated{run.postMortemSafety?.violations.some((v) => v.type === 'BLAME_BIAS') ? ' — blame language reframed by Enkrypt Mode 3' : ''}</span>
+            Post-mortem <span className="text-muted font-normal">· bias-gated{(() => {
+              const bias = run.postMortemSafety?.violations.find((v) => v.type === 'BLAME_BIAS');
+              return bias ? ` — blame language reframed by ${bias.source === 'enkrypt' ? 'Enkrypt cloud (Mode 3)' : 'local bias rules'}` : '';
+            })()}</span>
           </h3>
           <pre className="text-xs text-muted whitespace-pre-wrap font-mono bg-ink/60 rounded-lg p-3 border border-dim/60">{run.postMortem}</pre>
           {run.memoryPointId && (

@@ -37,7 +37,7 @@ function Insights() {
     <main className="mx-auto max-w-7xl px-4 py-6">
       <div className="mb-5">
         <h1 className="text-2xl font-bold">Insights</h1>
-        <p className="text-muted text-sm">Plant reliability, 2011 → 2025 · {num(k.fleetSize)} assets · {k.plants} plants · derived live from the incident corpus</p>
+        <p className="text-muted text-sm">Plant reliability, 2011 → 2025 · {num(k.fleetSize)} assets · {k.plants} plants · derived live from the 15-year <span className="text-offwhite">synthesized</span> incident corpus (modeled on real-world failure modes)</p>
         <p className="text-[11px] font-mono mt-1"><span className={`chip ${data.source === 'qdrant' ? 'border-[#7aa2ff]/50 text-[#7aa2ff]' : 'border-dim text-muted'}`}>{sourceCaption}</span></p>
       </div>
 

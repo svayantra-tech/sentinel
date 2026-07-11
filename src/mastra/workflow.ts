@@ -152,10 +152,14 @@ const safetyGate = createStep({
       technicianAuthLevel: s.authLevel, requiredSkillLevel: requiredSkill,
     });
     const blocked = report.violations.filter((v) => v.severity === 'block');
+    // Label the gate by what actually caught it: each violation carries its true
+    // source ('local' deterministic rules vs 'enkrypt' cloud) — never credit one
+    // for the other's catch.
+    const blockedSources = [...new Set(blocked.map((v) => v.source))].join('+');
     patchRun(s.runId, { stage: 'SAFETY_CHECKED', safety: report, correctedRunbook: corrected },
       blocked.length
-        ? `⛔ Enkrypt gate BLOCKED ${blocked.length} item(s): ${blocked.map((v) => v.type).join(', ')} — corrected runbook prepared`
-        : `Enkrypt gate clear (cloud=${report.cloudUsed}, local rules applied)`);
+        ? `⛔ Safety gate BLOCKED ${blocked.length} item(s) [source=${blockedSources}]: ${blocked.map((v) => v.type).join(', ')} — corrected runbook prepared`
+        : `Safety gate clear (local deterministic rules · Enkrypt cloud=${report.cloudUsed})`);
     return { ...s, safety: report, correctedRunbook: corrected };
   },
 });
@@ -242,7 +246,7 @@ const executeAndClose = createStep({
     const biasFix = pmSafety.violations.find((v) => v.type === 'BLAME_BIAS' && v.correction);
     const finalPm = biasFix?.correction ?? pm.text;
     patchRun(s.runId, { stage: 'POST_MORTEM', postMortem: finalPm, postMortemSafety: pmSafety },
-      `Post-mortem drafted (${pm.source})${biasFix ? ' — blame-bias reframed by Enkrypt gate' : ''}`);
+      `Post-mortem drafted (${pm.source})${biasFix ? ` — blame-bias reframed by ${biasFix.source === 'enkrypt' ? 'Enkrypt cloud (Mode 3)' : 'local bias rules'}` : ''}`);
 
     // FR-11 — the flywheel: this incident becomes retrievable memory.
     const incident: IncidentPayload = {

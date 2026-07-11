@@ -65,7 +65,7 @@ export default function ObservabilityPage() {
       {/* All-time deployment strip — corpus-derived so the panel is never empty */}
       {org && (
         <div className="panel p-3 mb-4">
-          <p className="text-[10px] font-mono text-muted uppercase mb-2">15-year deployment · institutional record</p>
+          <p className="text-[10px] font-mono text-muted uppercase mb-2">15-year synthesized corpus · institutional-scale record (modeled on real failure modes)</p>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {[
               ['incidents resolved', num(org.kpis.incidentsResolved)],
