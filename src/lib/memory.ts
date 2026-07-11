@@ -396,7 +396,16 @@ export async function writeBackIncident(opts: {
   correlationId: string; runId?: string; incident: IncidentPayload;
 }): Promise<string> {
   const store = getStore();
-  const id = randomUUID();
+  // Deterministic per-run point id: replaying the same run (step retry, resume
+  // edge) UPSERTS the same point instead of accumulating duplicates — same
+  // idempotency contract as seeding. Distinct runs of the same fault remain
+  // distinct incidents (new runId → new point), which is the honest semantics.
+  const id = opts.runId
+    ? (() => {
+        const h = createHash('md5').update(`writeback|${opts.runId}`).digest('hex');
+        return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+      })()
+    : randomUUID();
   const text = `${opts.incident.fault_code} ${opts.incident.fault_description} root cause: ${opts.incident.root_cause} fix: ${opts.incident.fix_applied}`;
   await traceStep(
     {
