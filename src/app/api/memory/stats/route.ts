@@ -11,5 +11,13 @@ export async function GET(req: NextRequest) {
   if (limited) return limited;
   const auth = await requireAuth(req);
   if ('error' in auth) return auth.error;
-  return NextResponse.json(await storeStats());
+  try {
+    return NextResponse.json(await storeStats());
+  } catch (err) {
+    // The vector store (cloud Qdrant) is unreachable. This endpoint is a
+    // connection/health indicator, so returning zeroed counts would falsely read
+    // as an empty store — report unhealthy honestly. Log the real cause.
+    console.error('[GET /api/memory/stats] vector store unavailable:', err);
+    return NextResponse.json({ error: 'Vector store unavailable' }, { status: 503 });
+  }
 }

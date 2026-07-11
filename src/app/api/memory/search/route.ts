@@ -22,11 +22,18 @@ export async function POST(req: NextRequest) {
   const body = await parseBody(req, SearchBody);
   if ('error' in body) return body.error;
 
-  const hits = await searchIncidents({
-    query: body.data.query,
-    equipmentType: body.data.equipmentType,
-    limit: body.data.limit ?? 5,
-    correlationId: `knowledge-${auth.user.sub}`,
-  });
-  return NextResponse.json({ backend: getStore().backend, query: body.data.query, hits });
+  try {
+    const hits = await searchIncidents({
+      query: body.data.query,
+      equipmentType: body.data.equipmentType,
+      limit: body.data.limit ?? 5,
+      correlationId: `knowledge-${auth.user.sub}`,
+    });
+    return NextResponse.json({ backend: getStore().backend, query: body.data.query, hits });
+  } catch (err) {
+    // Qdrant/embeddings unreachable — degrade to an empty result set (a valid,
+    // non-misleading answer for a search) rather than a 500. Log the real cause.
+    console.error('[POST /api/memory/search] search unavailable:', err);
+    return NextResponse.json({ backend: getStore().backend, query: body.data.query, hits: [] });
+  }
 }

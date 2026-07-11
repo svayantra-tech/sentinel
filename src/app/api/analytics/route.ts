@@ -15,6 +15,16 @@ export async function GET(req: NextRequest) {
   // ?source=qdrant → aggregate by scrolling Qdrant as the system of record
   // (falls back to the generated array when QDRANT_URL is unset).
   const source = new URL(req.url).searchParams.get('source');
-  const data = source === 'qdrant' ? await orgAnalyticsFromQdrant() : orgAnalytics();
-  return NextResponse.json(data);
+  if (source === 'qdrant') {
+    try {
+      return NextResponse.json(await orgAnalyticsFromQdrant());
+    } catch (err) {
+      // Qdrant scroll failed — fall back to the equivalent aggregate over the
+      // in-memory corpus (same shape, fully populated) so the dashboard still
+      // renders instead of 500-ing. Log the real cause.
+      console.error('[GET /api/analytics?source=qdrant] scroll failed, using array source:', err);
+      return NextResponse.json(orgAnalytics());
+    }
+  }
+  return NextResponse.json(orgAnalytics());
 }
