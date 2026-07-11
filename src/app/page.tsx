@@ -234,7 +234,7 @@ function RunTheatre({ run, allRuns, onSelect }: {
               ) : null;
             })()}
             <p className="text-[11px] font-mono text-muted mb-3">
-              semantic search + hard filters: {Object.entries(run.context.filters).map(([k, v]) => `${k}=${v}`).join(' · ')}
+              vector search + hard filters: {Object.entries(run.context.filters).map(([k, v]) => `${k}=${v}`).join(' · ')}
             </p>
             <div className="space-y-2">
               {run.context.incidents.map((i, n) => (

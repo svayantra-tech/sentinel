@@ -46,7 +46,9 @@ function Knowledge() {
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
       <h1 className="text-2xl font-bold mb-1">Knowledge</h1>
-      <p className="text-muted text-sm mb-4">The institutional memory, live from the vector store. Every retrieval in Sentinel — and every search below — is semantic similarity <span className="text-offwhite">plus a hard payload filter</span>, never naive nearest-neighbour.</p>
+      <p className="text-muted text-sm mb-4">The institutional memory, live from the vector store. Every retrieval in Sentinel — and every search below — is vector similarity <span className="text-offwhite">plus a hard payload filter</span>, never naive nearest-neighbour.
+        {stats && <span className="block mt-1 text-[11px] font-mono">embedder: <span className={stats.embedder.mode === 'remote' ? 'text-teal' : 'text-amber'}>{stats.embedder.mode === 'remote' ? `${stats.embedder.model} (remote)` : 'deterministic lexical-hash vectors — no ML embedding model; set EMBEDDINGS_URL for real semantic embeddings'}</span></span>}
+      </p>
 
       {/* Connection banner */}
       <div className={`panel p-4 mb-5 ${isQdrant ? '!border-[#7aa2ff]/50' : '!border-amber/50'}`}>
@@ -83,7 +85,7 @@ function Knowledge() {
 
       {/* Semantic search */}
       <div className="panel p-4 mb-4">
-        <h3 className="font-semibold text-sm mb-1">Ask the memory anything <span className="text-muted font-normal">· real semantic + filtered search on incident_history</span></h3>
+        <h3 className="font-semibold text-sm mb-1">Ask the memory anything <span className="text-muted font-normal">· real scored + filtered vector search on incident_history</span></h3>
         <p className="text-[11px] text-muted mb-3">Describe a symptom in plain language. The query is embedded and matched by cosine similarity against {num(stats?.collections.find((c) => c.name === 'incident_history')?.count ?? 0)} incident vectors — optionally hard-filtered by equipment type.</p>
         <div className="flex flex-wrap gap-2 items-center">
           <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()}
@@ -131,7 +133,7 @@ function Knowledge() {
         <div className="grid sm:grid-cols-3 gap-3 text-xs">
           <div className="rounded-lg bg-ink/60 border border-dim/60 p-3">
             <p className="font-mono text-teal mb-1">incident_history</p>
-            <p className="text-muted">semantic search + hard filter <span className="text-offwhite">equipment_type</span> — a pump fix can never surface for a compressor. Plant boost on top.</p>
+            <p className="text-muted">vector search + hard filter <span className="text-offwhite">equipment_type</span> — a pump fix can never surface for a compressor. Plant boost on top.</p>
           </div>
           <div className="rounded-lg bg-ink/60 border border-dim/60 p-3">
             <p className="font-mono text-[#7aa2ff] mb-1">oem_manuals</p>

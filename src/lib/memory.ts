@@ -17,7 +17,7 @@ import type {
   EquipmentType, IncidentPayload, ManualPayload, RunbookPayload, RetrievedContext,
 } from './types';
 import { traceStep } from './telemetry';
-import { embed, EMBED_DIM } from './embeddings';
+import { embed, EMBED_DIM, embedderInfo } from './embeddings';
 
 // ── Deterministic point IDs (idempotent seeding) ─────────────────────────────
 // A fresh randomUUID() per seed run would double the point count on every
@@ -246,6 +246,7 @@ export interface StoreStats {
   dim: number;
   host: string | null;               // Qdrant cluster host (never the API key)
   collections: Array<{ name: string; label: string; count: number }>;
+  embedder: { mode: 'remote' | 'local-hash'; model: string };
 }
 const COLLECTION_LABELS: Record<string, string> = {
   [COLLECTIONS.incidents]: 'Incident history',
@@ -266,7 +267,7 @@ export async function storeStats(): Promise<StoreStats> {
       name, label: COLLECTION_LABELS[name] ?? name, count: await store.count(name),
     })),
   );
-  return { backend: store.backend, dim: EMBED_DIM, host, collections };
+  return { backend: store.backend, dim: EMBED_DIM, host, collections, embedder: embedderInfo() };
 }
 
 /** Judge-facing "ask the memory anything" — real semantic + filtered Qdrant search. */

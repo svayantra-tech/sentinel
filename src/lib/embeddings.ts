@@ -9,6 +9,15 @@ import { createHash } from 'crypto';
 
 export const EMBED_DIM = 384;
 
+/** Which embedder is configured — surfaced in /api/memory/stats so the UI can
+ *  state it truthfully ("semantic" claims must match reality). */
+export function embedderInfo(): { mode: 'remote' | 'local-hash'; model: string } {
+  const url = process.env.EMBEDDINGS_URL?.trim();
+  return url
+    ? { mode: 'remote', model: process.env.EMBEDDINGS_MODEL || 'text-embedding-3-small' }
+    : { mode: 'local-hash', model: 'deterministic n-gram hash (no ML model)' };
+}
+
 const cache = new Map<string, number[]>();
 
 export async function embed(text: string): Promise<number[]> {
