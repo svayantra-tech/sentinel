@@ -14,6 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { createHash, randomUUID } from 'crypto';
+import { publishTrace } from './event-bus';
 
 const tracer = trace.getTracer('sentinel-agent', '1.0.0');
 
@@ -39,6 +40,7 @@ const buffer = g.__sentinelTraces;
 export function recordEvent(e: Omit<TraceEvent, 'id'>): void {
   buffer.push({ id: randomUUID(), ...e });
   if (buffer.length > MAX_EVENTS) buffer.splice(0, buffer.length - MAX_EVENTS);
+  publishTrace(e); // live-stream tap (additive, no logic change)
 }
 
 export function readEvents(opts?: { correlationId?: string; limit?: number }): TraceEvent[] {

@@ -8,6 +8,7 @@
 // LibSQL storage (MASTRA_DB_URL → Turso); this registry is a UI projection.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { RunStage, SentinelRunView, FaultInput } from '@/lib/types';
+import { publishStage } from '@/lib/event-bus';
 
 export interface RegisteredRun {
   view: SentinelRunView;
@@ -27,6 +28,7 @@ export function createRunView(runId: string, correlationId: string, fault: Fault
     startedAt: new Date().toISOString(),
   };
   runs.set(runId, { view });
+  publishStage(view, view.timeline[0]?.note); // live-stream tap (additive, no logic change)
   return view;
 }
 
@@ -59,5 +61,6 @@ export function patchRun(runId: string, patch: Partial<SentinelRunView>, note?: 
   Object.assign(r.view, patch);
   if (patch.stage) {
     r.view.timeline.push({ at: new Date().toISOString(), stage: patch.stage as RunStage, note: note ?? '' });
+    publishStage(r.view, note); // live-stream tap (additive, no logic change)
   }
 }
