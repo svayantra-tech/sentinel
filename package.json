@@ -12,7 +12,8 @@
     "history:check": "tsx --env-file=.env.local scripts/history-check.ts",
     "qdrant:verify": "tsx --env-file=.env.local scripts/qdrant-verify.ts",
     "mcp:cmms": "tsx src/mcp/cmms-server.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "scenarios": "tsx --env-file=.env.local scripts/scenarios.ts"
   },
   "dependencies": {
     "@mastra/core": "^1.49.0",

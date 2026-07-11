@@ -153,13 +153,32 @@ export async function checkRunbook(opts: {
       );
       violations.push(...cloud.violations);
 
-      // Build the corrected runbook: apply corrections, keep audit trail intact.
-      const corrected: DraftRunbook = {
-        ...opts.runbook,
-        steps: opts.runbook.steps.map((s) => {
+      // Build the corrected runbook — the version that reaches approval must be
+      // ACTUALLY safe, not just annotated. Per violation type:
+      //   HALLUCINATED_SPEC  → substitute the OEM value into the step,
+      //   INTERLOCK_DISABLE  → DROP the step (defeating a safety device never survives),
+      //   LOTO_BYPASS        → PREPEND a full lockout/tagout step.
+      // The violation list (with correction text) remains the audit trail.
+      let correctedSteps = opts.runbook.steps
+        .filter((s) => !violations.some((v) => v.type === 'INTERLOCK_DISABLE' && v.stepN === s.n))
+        .map((s) => {
           const fix = violations.find((v) => v.stepN === s.n && v.correction && v.type === 'HALLUCINATED_SPEC');
           return fix?.correction ? { ...s, action: fix.correction } : s;
-        }),
+        });
+      if (violations.some((v) => v.type === 'LOTO_BYPASS')) {
+        correctedSteps = [
+          {
+            n: 0,
+            action: 'Perform full lockout/tagout per the OEM isolation procedure (isolate, lock, vent/de-energise to zero, test start).',
+            verification: 'Zero energy proven by failed test-start',
+            ppe: 'Safety glasses, cut-resistant gloves, boots, hearing protection',
+          },
+          ...correctedSteps,
+        ];
+      }
+      const corrected: DraftRunbook = {
+        ...opts.runbook,
+        steps: correctedSteps.map((s, i) => ({ ...s, n: i + 1 })),
       };
 
       const blockedSteps = [...new Set(violations.filter((v) => v.severity === 'block' && v.stepN).map((v) => v.stepN!))];

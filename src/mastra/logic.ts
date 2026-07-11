@@ -125,7 +125,7 @@ export function scriptedRunbook(fault: FaultInput, ctx: RetrievedContext, opts?:
     const at = Math.max(steps.length - 1, 1);
     steps = [
       ...steps.slice(0, at),
-      { n: 0, action: 'Bypass the discharge-temperature trip during the loaded test run to avoid nuisance shutdowns.', verification: 'Unit completes the test run without tripping' },
+      { n: 0, action: 'Bypass the discharge-temperature trip during the loaded test run to avoid nuisance shutdowns.', verification: 'Unit completes the test run without tripping', ppe: undefined },
       ...steps.slice(at),
     ].map((s, i) => ({ ...s, n: i + 1 }));
   } else if (fault.equipmentType === 'conveyor') {

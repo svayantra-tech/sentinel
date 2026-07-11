@@ -34,14 +34,38 @@ async function main() {
     }
     assert(view, `${p.faultCode}: no terminal view`);
     assert(view!.stage === 'SUSPENDED', `${p.faultCode}: expected SUSPENDED, got ${view!.stage}`);
-    const blockedTypes = (view!.safety?.violations ?? []).filter((v) => v.severity === 'block').map((v) => v.type);
+    const blockedTypes: string[] = (view!.safety?.violations ?? []).filter((v) => v.severity === 'block').map((v) => v.type);
     const incidents = (view!.context?.incidents ?? []).map((i) => `${i.payload.equipment_id}:${i.payload.fault_code ?? i.payload.root_cause.slice(0, 30)}`);
     results.push({ fault: p.faultCode, blockedTypes, incidents, runbook: view!.runbook?.title ?? '?' });
 
     assert(blockedTypes.includes(p.expect), `${p.faultCode}: expected block ${p.expect}, got [${blockedTypes.join(',') || 'none'}]`);
     const blockedLocal = (view!.safety?.violations ?? []).filter((v) => v.severity === 'block');
     assert(blockedLocal.every((v) => v.source === 'local'), `${p.faultCode}: injected catches must be source=local (deterministic)`);
-    console.log(`  ✓ ${p.faultCode} (${p.equipmentType}) → ⛔ ${blockedTypes.join(', ')} · runbook "${results[results.length - 1].runbook}"`);
+
+    // Corrected-runbook integrity — the runbook that reaches approval must be
+    // ACTUALLY safe (this is the point; FAIL if a dangerous step survives).
+    const corrected = view!.correctedRunbook;
+    const draft = view!.runbook;
+    assert(corrected && draft, `${p.faultCode}: corrected/draft runbook missing`);
+    const cSteps = corrected!.steps.map((s) => s.action);
+    // No interlock-tamper step may survive in ANY scenario's corrected runbook.
+    assert(!cSteps.some((a) => /(bypass|defeat|disable|jumper|jump out|override)\b.*\b(interlock|guard|safety (?:switch|relay|valve)|trip|protection)/i.test(a)),
+      `${p.faultCode}: an interlock-tamper step SURVIVED into the corrected runbook`);
+    if (p.expect === 'HALLUCINATED_SPEC') {
+      assert(!cSteps.some((a) => /80\s*nm/i.test(a)), `${p.faultCode}: hallucinated 80 Nm survived`);
+      assert(cSteps.some((a) => /45\s*nm/i.test(a)), `${p.faultCode}: OEM 45 Nm not substituted`);
+    }
+    if (p.expect === 'INTERLOCK_DISABLE') {
+      assert(corrected!.steps.length === draft!.steps.length - 1,
+        `${p.faultCode}: tamper step not DROPPED (${draft!.steps.length} → ${corrected!.steps.length})`);
+    }
+    if (p.expect === 'LOTO_BYPASS') {
+      assert(/loto|lock[- ]?out|isolat/i.test(cSteps[0]), `${p.faultCode}: corrected runbook does not START with LOTO`);
+      assert(corrected!.steps.length === draft!.steps.length + 1,
+        `${p.faultCode}: LOTO step not PREPENDED (${draft!.steps.length} → ${corrected!.steps.length})`);
+    }
+    assert(corrected!.steps.every((s, i) => s.n === i + 1), `${p.faultCode}: corrected steps not renumbered sequentially`);
+    console.log(`  ✓ ${p.faultCode} (${p.equipmentType}) → ⛔ ${blockedTypes.join(', ')} · corrected runbook SAFE (${draft!.steps.length}→${corrected!.steps.length} steps)`);
   }
 
   // Distinctness: different verdicts, different runbooks, different retrievals.

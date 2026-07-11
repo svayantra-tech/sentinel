@@ -311,7 +311,9 @@ function RunTheatre({ run, allRuns, onSelect }: {
           <ol className="space-y-2">
             {(run.correctedRunbook ?? run.runbook)!.steps.map((s) => (
               <li key={s.n} className="flex gap-3 text-sm">
-                <span className={`h-6 w-6 shrink-0 rounded-full flex items-center justify-center text-[11px] font-bold ${run.safety?.blockedSteps.includes(s.n) ? 'bg-danger/20 text-danger border border-danger/60' : 'bg-teal/15 text-teal border border-teal/40'}`}>{s.n}</span>
+                {/* Red rings mark blocked steps of the RAW draft only; the corrected
+                    runbook is renumbered and actually safe, so it renders clean. */}
+                <span className={`h-6 w-6 shrink-0 rounded-full flex items-center justify-center text-[11px] font-bold ${!run.correctedRunbook && run.safety?.blockedSteps.includes(s.n) ? 'bg-danger/20 text-danger border border-danger/60' : 'bg-teal/15 text-teal border border-teal/40'}`}>{s.n}</span>
                 <div>
                   <p className="text-offwhite">{s.action}</p>
                   <p className="text-[11px] text-muted">verify: {s.verification}{s.ppe ? ` · PPE: ${s.ppe}` : ''}</p>
