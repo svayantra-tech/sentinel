@@ -34,6 +34,10 @@ export interface IncidentPayload {
   outcome: 'resolved' | 'escalated';
   technician_id: string;
   timestamp: string; // ISO-8601
+  /** true ONLY on incidents written back by a workflow run — never on the seeded
+   *  corpus. This is the marker "Reset Demo" deletes by; without it, seeded and
+   *  run-generated points are indistinguishable. */
+  demo_generated?: boolean;
 }
 
 export interface ManualPayload {

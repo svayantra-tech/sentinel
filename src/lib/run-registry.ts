@@ -51,6 +51,14 @@ export function getRun(runId: string): RegisteredRun | undefined {
   return runs.get(runId);
 }
 
+/** Reset Demo: drop every in-memory run projection. Returns how many were cleared.
+ *  Run STATE only — never touches the vector-store corpus. */
+export function clearRuns(): number {
+  const n = runs.size;
+  runs.clear();
+  return n;
+}
+
 export function listRuns(): SentinelRunView[] {
   return [...runs.values()].map((r) => r.view).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }

@@ -62,7 +62,19 @@ interface VectorStore {
   resetCollections(): Promise<void>;
   /** Page through every point's payload — the system-of-record analytics source. */
   scrollAll<P extends AnyPayload>(collection: string): Promise<P[]>;
+  /** Exact count of points matching a filter (reset-safety accounting). */
+  countWhere(collection: string, filter: QFilter): Promise<number>;
+  /** Delete ONLY points matching a non-empty filter. Implementations MUST throw
+   *  on an empty/missing filter — a "delete all" can never be expressed here. */
+  deleteWhere(collection: string, filter: QFilter): Promise<void>;
   backend: 'qdrant' | 'memory';
+}
+
+/** Structural guard shared by both stores: refuse any delete without conditions. */
+function assertDeletableFilter(filter: QFilter | undefined): asserts filter is QFilter {
+  if (!filter?.must?.length) {
+    throw new Error('deleteWhere refused: empty filter would delete the entire collection');
+  }
 }
 
 // Minimal Qdrant filter shape we use (must/range) — kept explicit for judges.
@@ -98,6 +110,13 @@ class QdrantStore implements VectorStore {
         }).catch(() => {});
       }
     }
+    // Reset-safety index — created unconditionally (idempotent) because managed
+    // Qdrant runs strict mode: filtering on an unindexed field is rejected, and
+    // clearDemoWriteBacks filters on demo_generated. Existing collections from
+    // before this field get the index here too.
+    await this.client.createPayloadIndex(COLLECTIONS.incidents, {
+      field_name: 'demo_generated', field_schema: 'bool', wait: true,
+    }).catch(() => {});
   }
   async upsert(collection: string, points: Array<{ id: string; vector: number[]; payload: AnyPayload }>) {
     await this.client.upsert(collection, {
@@ -114,6 +133,14 @@ class QdrantStore implements VectorStore {
   async count(collection: string): Promise<number> {
     const res = await this.client.count(collection, { exact: true });
     return res.count;
+  }
+  async countWhere(collection: string, filter: QFilter): Promise<number> {
+    const res = await this.client.count(collection, { filter: filter as never, exact: true });
+    return res.count;
+  }
+  async deleteWhere(collection: string, filter: QFilter): Promise<void> {
+    assertDeletableFilter(filter);
+    await this.client.delete(collection, { filter: filter as never, wait: true });
   }
   async resetCollections(): Promise<void> {
     for (const name of Object.values(COLLECTIONS)) {
@@ -173,6 +200,27 @@ class MemoryStore implements VectorStore {
       .slice(0, limit);
   }
   async count(collection: string) { return (this.data.get(collection) ?? []).length; }
+  private matches(payload: AnyPayload, filter: QFilter): boolean {
+    return (filter.must ?? []).every((cond) => {
+      const val = (payload as unknown as Record<string, unknown>)[cond.key];
+      if ('match' in cond) return val === cond.match.value;
+      if ('range' in cond) {
+        const n = Number(val);
+        if (cond.range.lte !== undefined && !(n <= cond.range.lte)) return false;
+        if (cond.range.gte !== undefined && !(n >= cond.range.gte)) return false;
+        return true;
+      }
+      return true;
+    });
+  }
+  async countWhere(collection: string, filter: QFilter): Promise<number> {
+    return (this.data.get(collection) ?? []).filter((p) => this.matches(p.payload, filter)).length;
+  }
+  async deleteWhere(collection: string, filter: QFilter): Promise<void> {
+    assertDeletableFilter(filter);
+    const arr = this.data.get(collection) ?? [];
+    this.data.set(collection, arr.filter((p) => !this.matches(p.payload, filter)));
+  }
   async resetCollections() { this.data.clear(); await this.ensureCollections(); }
   async scrollAll<P extends AnyPayload>(collection: string): Promise<P[]> {
     return (this.data.get(collection) ?? []).map((p) => p.payload as unknown as P);
@@ -414,8 +462,30 @@ export async function writeBackIncident(opts: {
       attrs: { collection: COLLECTIONS.incidents, backend: store.backend, point_id: id },
     },
     async () => store.upsert(COLLECTIONS.incidents, [
-      { id, vector: await embed(text), payload: opts.incident },
+      // demo_generated marks this point as run-generated — the ONLY thing
+      // "Reset Demo" is allowed to delete. Seeded corpus never carries it.
+      { id, vector: await embed(text), payload: { ...opts.incident, demo_generated: true } },
     ]),
   );
   return id;
+}
+
+// ── Corpus-safe demo reset (run-generated write-backs ONLY) ──────────────────
+// Deletes incident_history points carrying demo_generated=true — the marker
+// stamped exclusively by writeBackIncident above. Hard guardrails:
+//   · deleteWhere structurally refuses an empty filter (no "delete all" path),
+//   · if the marker matches more than MAX_RESET_DELETES points, ABORT untouched
+//     (a sane demo never accumulates that many write-backs; a bug might).
+const MAX_RESET_DELETES = 100;
+export async function clearDemoWriteBacks(): Promise<{ removed: number; before: number; after: number }> {
+  const store = getStore();
+  const filter: QFilter = { must: [{ key: 'demo_generated', match: { value: true } }] };
+  const before = await store.count(COLLECTIONS.incidents);
+  const matched = await store.countWhere(COLLECTIONS.incidents, filter);
+  if (matched > MAX_RESET_DELETES) {
+    throw new Error(`reset aborted: filter matched ${matched} points (> ${MAX_RESET_DELETES} cap) — nothing deleted`);
+  }
+  if (matched > 0) await store.deleteWhere(COLLECTIONS.incidents, filter);
+  const after = await store.count(COLLECTIONS.incidents);
+  return { removed: matched, before, after };
 }
