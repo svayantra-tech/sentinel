@@ -47,6 +47,14 @@ export function registerRunView(view: SentinelRunView): void {
   if (!runs.has(view.runId)) runs.set(view.runId, { view });
 }
 
+/** Replace an entry's view (keeps the resume handle) — used when durable storage
+ *  shows the run further along than this instance's stale in-memory projection. */
+export function replaceRunView(view: SentinelRunView): void {
+  const r = runs.get(view.runId);
+  if (r) r.view = view;
+  else runs.set(view.runId, { view });
+}
+
 export function getRun(runId: string): RegisteredRun | undefined {
   return runs.get(runId);
 }

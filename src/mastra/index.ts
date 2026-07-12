@@ -13,8 +13,17 @@ import { LibSQLStore } from '@mastra/libsql';
 import { sentinelWorkflow, APPROVAL_STEP_ID, type SentinelState } from './workflow';
 import type { FaultInput, SessionUser, SentinelRunView, RunStage } from '@/lib/types';
 import { newCorrelationId } from '@/lib/telemetry';
-import { createRunView, attachHandle, getRun, patchRun, registerRunView, listRuns } from '@/lib/run-registry';
+import { createRunView, attachHandle, getRun, patchRun, registerRunView, replaceRunView, listRuns } from '@/lib/run-registry';
 import { getResetWatermark } from '@/lib/reset-watermark';
+
+// Canonical stage progression — used to reconcile an instance's in-memory view
+// with durable storage: whichever is FURTHER ALONG wins (another serverless
+// instance may have approved/completed a run this instance still shows live).
+const STAGE_RANK: Record<RunStage, number> = {
+  FAULT_INGESTED: 0, CONTEXT_RETRIEVED: 1, RUNBOOK_DRAFTED: 2, SCORED: 3,
+  SAFETY_CHECKED: 4, SUSPENDED: 5, TECHNICIAN_APPROVED: 6, EXECUTING: 7,
+  POST_MORTEM: 8, MEMORY_WRITTEN: 9, DONE: 10, FAILED: 10,
+};
 import { ensureSeeded } from '@/lib/memory';
 import { healthCheckLLM } from '@/lib/llm';
 
@@ -225,7 +234,22 @@ export async function getRunView(runId: string): Promise<SentinelRunView | null>
     // Drop in-memory views from before the last demo reset (another instance may
     // have cleared the DB; this instance's registry would otherwise resurrect them).
     const wm = await getResetWatermark().catch(() => null);
-    if (!wm || reg.view.startedAt > wm) return reg.view;
+    if (!wm || reg.view.startedAt > wm) {
+      const terminal = reg.view.stage === 'DONE' || reg.view.stage === 'FAILED';
+      if (terminal) return reg.view;
+      // Live run: another instance may have advanced it (approve → DONE happens
+      // in-request on serverless). Prefer durable storage when it's further along.
+      try {
+        const wf = getMastra().getWorkflow('sentinelWorkflow');
+        const persisted = await wf.getWorkflowRunById(runId);
+        const pView = persisted ? viewFromPersisted(runId, persisted) : null;
+        if (pView && STAGE_RANK[pView.stage] > STAGE_RANK[reg.view.stage]) {
+          replaceRunView(pView);
+          return pView;
+        }
+      } catch { /* storage unavailable — the in-memory view is the best we have */ }
+      return reg.view;
+    }
   }
   try {
     const wf = getMastra().getWorkflow('sentinelWorkflow');
@@ -254,14 +278,22 @@ export async function listRunViews(): Promise<SentinelRunView[]> {
     const { runs } = await wf.listWorkflowRuns({ perPage: REHYDRATE_LIMIT, page: 0 });
     const views = await Promise.all(
       runs
-        .filter((r) => !byId.has(r.runId))
+        // Skip persisted reads only for runs this instance already shows TERMINAL —
+        // a live in-memory view may be stale (another instance advanced the run).
+        .filter((r) => {
+          const mem = byId.get(r.runId);
+          return !mem || STAGE_RANK[mem.stage] < STAGE_RANK.DONE;
+        })
         .map(async (r) => {
           const persisted = await wf.getWorkflowRunById(r.runId).catch(() => null);
           return persisted ? viewFromPersisted(r.runId, persisted) : null;
         }),
     );
     for (const view of views) {
-      if (view) { byId.set(view.runId, view); registerRunView(view); }
+      if (!view) continue;
+      const mem = byId.get(view.runId);
+      if (!mem) { byId.set(view.runId, view); registerRunView(view); }
+      else if (STAGE_RANK[view.stage] > STAGE_RANK[mem.stage]) { byId.set(view.runId, view); replaceRunView(view); }
     }
   } catch {
     // durable storage unavailable — fall back to the in-memory projection only
