@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState } from 'react';
 import { api, usePoll, useSession } from '@/lib/client';
+import ResetDemoButton from '@/components/ResetDemoButton';
 import { requiredApprovalLevel, type SentinelRunView } from '@/lib/types';
 import type { TechnicianSummary } from '@/lib/analytics';
 
@@ -48,9 +49,12 @@ export default function TechnicianPage() {
             <p className="font-bold">Approvals</p>
             <p className="text-[11px] text-muted">{user.name} · auth L{user.authLevel}</p>
           </div>
-          <span className={`chip ${suspended.length ? 'border-amber/60 text-amber' : 'border-teal/50 text-teal'}`}>
-            {suspended.length ? `${suspended.length} waiting` : 'inbox clear'}
-          </span>
+          <div className="flex items-center gap-2">
+            <ResetDemoButton onReset={refresh} className="chip border-dim text-muted hover:text-offwhite hover:border-teal" />
+            <span className={`chip ${suspended.length ? 'border-amber/60 text-amber' : 'border-teal/50 text-teal'}`}>
+              {suspended.length ? `${suspended.length} waiting` : 'inbox clear'}
+            </span>
+          </div>
         </div>
 
         {/* Signed-in technician's derived lifetime record */}

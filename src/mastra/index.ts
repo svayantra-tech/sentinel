@@ -14,6 +14,7 @@ import { sentinelWorkflow, APPROVAL_STEP_ID, type SentinelState } from './workfl
 import type { FaultInput, SessionUser, SentinelRunView, RunStage } from '@/lib/types';
 import { newCorrelationId } from '@/lib/telemetry';
 import { createRunView, attachHandle, getRun, patchRun, registerRunView, listRuns } from '@/lib/run-registry';
+import { getResetWatermark } from '@/lib/reset-watermark';
 import { ensureSeeded } from '@/lib/memory';
 import { healthCheckLLM } from '@/lib/llm';
 
@@ -186,13 +187,20 @@ function accumulatedState(persisted: { payload?: unknown; steps?: Record<string,
   return hasFault(persisted.payload) ? persisted.payload : {};
 }
 
-/** Rebuild a SentinelRunView from a persisted Mastra workflow snapshot (or null). */
-function viewFromPersisted(runId: string, persisted: { status: string; payload?: unknown; steps?: Record<string, unknown> }): SentinelRunView | null {
+/** Rebuild a SentinelRunView from a persisted Mastra workflow snapshot (or null).
+ *  Timestamps come from the PERSISTED run (createdAt/updatedAt) — stamping "now"
+ *  here made every cold-instance rehydration look like a brand-new run starting,
+ *  which sorted old runs to the top of the dashboard as if they auto-injected. */
+function viewFromPersisted(
+  runId: string,
+  persisted: { status: string; createdAt?: Date | string; updatedAt?: Date | string; payload?: unknown; steps?: Record<string, unknown> },
+): SentinelRunView | null {
   const s = accumulatedState(persisted);
   if (!s.fault || !s.correlationId) return null;
   const stage = stageFromPersisted(persisted.status, s);
-  const at = new Date().toISOString();
-  const timeline: SentinelRunView['timeline'] = [{ at, stage: 'FAULT_INGESTED', note: `Fault ${s.fault.faultCode} on ${s.fault.equipmentId} (rehydrated from durable storage)` }];
+  const startedAt = persisted.createdAt ? new Date(persisted.createdAt).toISOString() : new Date().toISOString();
+  const at = persisted.updatedAt ? new Date(persisted.updatedAt).toISOString() : startedAt;
+  const timeline: SentinelRunView['timeline'] = [{ at: startedAt, stage: 'FAULT_INGESTED', note: `Fault ${s.fault.faultCode} on ${s.fault.equipmentId} (rehydrated from durable storage)` }];
   if (s.context) timeline.push({ at, stage: 'CONTEXT_RETRIEVED', note: 'Qdrant context (rehydrated)' });
   if (s.runbook) timeline.push({ at, stage: 'RUNBOOK_DRAFTED', note: 'Runbook drafted (rehydrated)' });
   if (s.scorecard) timeline.push({ at, stage: 'SCORED', note: 'Scored (rehydrated)' });
@@ -205,7 +213,7 @@ function viewFromPersisted(runId: string, persisted: { status: string; payload?:
     runId, correlationId: s.correlationId, fault: s.fault, stage,
     workOrderId: s.workOrderId, context: s.context, runbook: s.runbook,
     scorecard: s.scorecard, safety: s.safety, correctedRunbook: s.correctedRunbook,
-    approval: s.approval, timeline, startedAt: at,
+    approval: s.approval, timeline, startedAt,
     finishedAt: stage === 'DONE' || stage === 'FAILED' ? at : undefined,
   };
 }
@@ -213,7 +221,12 @@ function viewFromPersisted(runId: string, persisted: { status: string; payload?:
 /** A single run's view — in-memory if present, else rehydrated from durable storage. */
 export async function getRunView(runId: string): Promise<SentinelRunView | null> {
   const reg = getRun(runId);
-  if (reg) return reg.view;
+  if (reg) {
+    // Drop in-memory views from before the last demo reset (another instance may
+    // have cleared the DB; this instance's registry would otherwise resurrect them).
+    const wm = await getResetWatermark().catch(() => null);
+    if (!wm || reg.view.startedAt > wm) return reg.view;
+  }
   try {
     const wf = getMastra().getWorkflow('sentinelWorkflow');
     const persisted = await wf.getWorkflowRunById(runId);
@@ -226,17 +239,29 @@ export async function getRunView(runId: string): Promise<SentinelRunView | null>
   }
 }
 
-/** All run views — in-memory ∪ persisted (in-memory wins), newest first. */
+/** All run views — in-memory ∪ persisted (in-memory wins), newest first.
+ *  Rehydration is capped to the newest runs and parallelised: the previous
+ *  unbounded sequential loop (one Turso roundtrip per historical run) blew the
+ *  serverless time budget on cold instances and /api/runs came back empty. */
+const REHYDRATE_LIMIT = 12;
 export async function listRunViews(): Promise<SentinelRunView[]> {
-  const byId = new Map<string, SentinelRunView>(listRuns().map((v) => [v.runId, v]));
+  const wm = await getResetWatermark().catch(() => null);
+  const memViews = listRuns().filter((v) => !wm || v.startedAt > wm);
+  const byId = new Map<string, SentinelRunView>(memViews.map((v) => [v.runId, v]));
   try {
     const wf = getMastra().getWorkflow('sentinelWorkflow');
-    const { runs } = await wf.listWorkflowRuns();
-    for (const r of runs) {
-      if (byId.has(r.runId)) continue;
-      const persisted = await wf.getWorkflowRunById(r.runId).catch(() => null);
-      const view = persisted ? viewFromPersisted(r.runId, persisted) : null;
-      if (view) { byId.set(r.runId, view); registerRunView(view); }
+    // libsql store orders createdAt DESC → page 0 is the newest runs.
+    const { runs } = await wf.listWorkflowRuns({ perPage: REHYDRATE_LIMIT, page: 0 });
+    const views = await Promise.all(
+      runs
+        .filter((r) => !byId.has(r.runId))
+        .map(async (r) => {
+          const persisted = await wf.getWorkflowRunById(r.runId).catch(() => null);
+          return persisted ? viewFromPersisted(r.runId, persisted) : null;
+        }),
+    );
+    for (const view of views) {
+      if (view) { byId.set(view.runId, view); registerRunView(view); }
     }
   } catch {
     // durable storage unavailable — fall back to the in-memory projection only

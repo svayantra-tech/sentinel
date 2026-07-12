@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState } from 'react';
 import { api, usePoll, useSession, type ClientUser } from '@/lib/client';
+import ResetDemoButton from '@/components/ResetDemoButton';
 import type { SentinelRunView } from '@/lib/types';
 import type { AssetSummary } from '@/lib/analytics';
 import { HEALTH_CHIP, TREND_ARROW, TREND_COLOR, num } from '@/lib/format';
@@ -105,21 +106,6 @@ function Dashboard({ user, logout }: { user: ClientUser; logout: () => void }) {
     refresh();
   };
 
-  // Corpus-safe demo reset — clears run state + run-generated write-backs ONLY
-  // (server enforces the demo_generated filter and the >100 abort cap).
-  const resetDemo = async () => {
-    if (!confirm('Clear demo run history? The seeded corpus (~2,800 cases) is preserved. This cannot be undone.')) return;
-    try {
-      const r = await api<{ runsCleared: number; snapshotsCleared: number; writeBacksRemoved: number; incidentsBefore: number; incidentsAfter: number }>(
-        '/api/reset', { method: 'POST' });
-      alert(`Reset complete.\nRuns cleared: ${r.runsCleared} in-memory + ${r.snapshotsCleared} persisted\nWrite-backs removed: ${r.writeBacksRemoved}\nCorpus: ${r.incidentsBefore} → ${r.incidentsAfter} points (seeded preserved)`);
-      setActiveRunId(null);
-      refresh();
-    } catch (e) {
-      alert(`Reset failed: ${(e as Error).message}`);
-    }
-  };
-
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
       <div className="flex items-center justify-between mb-5">
@@ -128,9 +114,7 @@ function Dashboard({ user, logout }: { user: ClientUser; logout: () => void }) {
           <p className="text-muted text-sm">Signed in as <span className="text-teal">{user.name}</span> (auth L{user.authLevel}) — retrieval is filtered to your level</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Visible to every role; the API's corpus-safety guardrails
-              (demo_generated-only deletion, ≤100 cap) do the protecting. */}
-          <button onClick={resetDemo} className="btn btn-ghost">Reset Demo</button>
+          <ResetDemoButton onReset={() => { setActiveRunId(null); refresh(); }} />
           <button onClick={logout} className="btn btn-ghost">Sign out</button>
         </div>
       </div>

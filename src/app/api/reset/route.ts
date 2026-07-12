@@ -11,6 +11,7 @@ import { createClient } from '@libsql/client';
 import { requireAuth, rateLimit } from '@/lib/auth';
 import { clearRuns } from '@/lib/run-registry';
 import { clearDemoWriteBacks } from '@/lib/memory';
+import { setResetWatermark } from '@/lib/reset-watermark';
 
 export async function POST(req: NextRequest) {
   const limited = rateLimit(req);
@@ -31,6 +32,9 @@ export async function POST(req: NextRequest) {
     // Run snapshots only — this table holds disposable workflow state, not corpus.
     await db.execute('DELETE FROM mastra_workflow_snapshot');
     db.close();
+    // Watermark: other serverless instances drop their stale in-memory views,
+    // so a reload after reset stays clean on every instance.
+    await setResetWatermark();
   } catch (err) {
     console.error('[POST /api/reset] snapshot clear failed:', err);
     return NextResponse.json({ error: 'Workflow state store unavailable — nothing deleted from memory' }, { status: 503 });

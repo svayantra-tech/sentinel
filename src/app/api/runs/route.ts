@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, rateLimit } from '@/lib/auth';
 import { listRunViews } from '@/mastra';
 
+// Cold-instance rehydration does real (parallel, capped) Turso reads — give it
+// headroom beyond the serverless default so the run list never 504s to empty.
+export const maxDuration = 30;
+
 export async function GET(req: NextRequest) {
   const limited = rateLimit(req);
   if (limited) return limited;
