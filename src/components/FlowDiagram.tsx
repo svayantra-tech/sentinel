@@ -4,17 +4,17 @@
 // Edges carry animated dash-flow pulses; the write-back → retrieval loop is the flywheel.
 import { useState } from 'react';
 
-interface Node { id: string; x: number; y: number; icon: string; label: string; color: string; desc: string }
+interface Node { id: string; x: number; y: number; icon: string; label: string; sub: string; color: string; desc: string }
 
 const NODES: Node[] = [
-  { id: 'fault',   x: 70,   y: 130, icon: '⚠️', label: 'Fault',           color: '#F59E0B', desc: 'A sensor alarm or operator report fires. Sentinel ingests it and opens a CMMS work order automatically — via a real MCP tool.' },
-  { id: 'qdrant',  x: 205,  y: 130, icon: '🧠', label: 'Qdrant Retrieval', color: '#00C9A7', desc: 'Semantic search + HARD payload filters over 3 collections: similar incidents, the exact OEM manual section, and vetted runbooks — filtered to the technician’s auth level.' },
-  { id: 'draft',   x: 340,  y: 130, icon: '✍️', label: 'LLM Draft',        color: '#7DA2FF', desc: 'A step-by-step repair runbook is drafted (Groq llama-3.3-70b in live mode), grounded in the retrieved context.' },
-  { id: 'scorer',  x: 475,  y: 130, icon: '📊', label: 'Mastra Scorer',    color: '#B48CFF', desc: 'Deterministic scorers grade relevance, safety and completeness (pass ≥ 0.75 each). A failing draft triggers one self-refine pass with scorer feedback.' },
-  { id: 'gate',    x: 610,  y: 130, icon: '⛔', label: 'Safety Gate',      color: '#EF4444', desc: 'Every numeric spec is cross-checked against OEM ground truth; LOTO ordering, interlock tampering and auth level are enforced — locally and deterministically, with Enkrypt cloud running in parallel. Dangerous steps are corrected or removed.' },
-  { id: 'hitl',    x: 745,  y: 130, icon: '👤', label: 'HITL Approval',    color: '#F59E0B', desc: 'The workflow genuinely suspends (Mastra suspend/resume, durable in Turso). Nothing executes until a human with sufficient auth level signs off.' },
-  { id: 'post',    x: 880,  y: 130, icon: '📝', label: 'Post-Mortem',      color: '#00C9A7', desc: 'A blameless post-mortem is written and itself passes a bias gate (no unevidenced operator-blame).' },
-  { id: 'memory',  x: 1000, y: 130, icon: '💾', label: 'Write-Back',       color: '#34D399', desc: 'The resolved incident is written back into Qdrant — the next similar failure retrieves THIS fix. That loop is the flywheel.' },
+  { id: 'fault',   x: 70,   y: 130, icon: '⚠️', label: 'Fault',           sub: 'MCP · CMMS work order',       color: '#F59E0B', desc: 'A sensor alarm or operator report fires. Sentinel ingests it and opens a CMMS work order automatically — via a real MCP tool.' },
+  { id: 'qdrant',  x: 205,  y: 130, icon: '🧠', label: 'Qdrant Retrieval', sub: 'Qdrant Cloud',                color: '#00C9A7', desc: 'Semantic search + HARD payload filters over 3 collections: similar incidents, the exact OEM manual section, and vetted runbooks — filtered to the technician’s auth level.' },
+  { id: 'draft',   x: 340,  y: 130, icon: '✍️', label: 'LLM Draft',        sub: 'Groq · llama-3.3-70b',        color: '#7DA2FF', desc: 'A step-by-step repair runbook is drafted (Groq llama-3.3-70b in live mode), grounded in the retrieved context.' },
+  { id: 'scorer',  x: 475,  y: 130, icon: '📊', label: 'Mastra Scorer',    sub: 'Mastra scorers',              color: '#B48CFF', desc: 'Deterministic scorers grade relevance, safety and completeness (pass ≥ 0.75 each). A failing draft triggers one self-refine pass with scorer feedback.' },
+  { id: 'gate',    x: 610,  y: 130, icon: '⛔', label: 'Safety Gate',      sub: 'Physics engine + Enkrypt AI', color: '#EF4444', desc: 'Every numeric spec is cross-checked against OEM ground truth; LOTO ordering, interlock tampering and auth level are enforced — locally and deterministically, with Enkrypt cloud running in parallel. Dangerous steps are corrected or removed.' },
+  { id: 'hitl',    x: 745,  y: 130, icon: '👤', label: 'HITL Approval',    sub: 'Mastra suspend/resume',       color: '#F59E0B', desc: 'The workflow genuinely suspends (Mastra suspend/resume, durable in Turso). Nothing executes until a human with sufficient auth level signs off.' },
+  { id: 'post',    x: 880,  y: 130, icon: '📝', label: 'Post-Mortem',      sub: 'Groq + Enkrypt bias check',   color: '#00C9A7', desc: 'A blameless post-mortem is written and itself passes a bias gate (no unevidenced operator-blame).' },
+  { id: 'memory',  x: 1000, y: 130, icon: '💾', label: 'Write-Back',       sub: 'Qdrant upsert',               color: '#34D399', desc: 'The resolved incident is written back into Qdrant — the next similar failure retrieves THIS fix. That loop is the flywheel.' },
 ];
 
 const EDGES: Array<[number, number]> = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7]];
@@ -56,6 +56,8 @@ export default function FlowDiagram() {
               {active === i && <circle r="36" fill="none" stroke={node.color} strokeWidth="1" opacity=".5" className="led" />}
               <text textAnchor="middle" dy="7" fontSize="22">{node.icon}</text>
               <text textAnchor="middle" y="50" fill={active === i ? node.color : '#8FA3BF'} fontSize="12" fontWeight="600">{node.label}</text>
+              {/* the actual stack under each step — mono, muted, projector-legible */}
+              <text textAnchor="middle" y="64" fill="#64748B" fontSize="9" fontFamily="monospace">{node.sub}</text>
             </g>
           ))}
         </svg>
