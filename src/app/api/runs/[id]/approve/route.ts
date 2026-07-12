@@ -12,6 +12,10 @@ const ApproveBody = z.object({
   notes: z.string().max(500).optional(),
 });
 
+// On serverless, resumeSentinelRun drives the resumed run to DONE within this
+// request (post-mortem + memory write-back). Give it headroom.
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const limited = rateLimit(req);
   if (limited) return limited;

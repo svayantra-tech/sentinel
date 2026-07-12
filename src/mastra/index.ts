@@ -47,7 +47,19 @@ export function getMastra(): Mastra {
   return g.__sentinelMastra;
 }
 
-/** Start a Sentinel run. Fire-and-forget: the UI polls /api/runs/[id]. */
+// On a persistent server the event loop keeps draining a fire-and-forget workflow
+// promise after the HTTP response is sent, so the run marches to its SUSPENDED gate
+// on its own and the UI polls it live. On serverless (Vercel) the instance is FROZEN
+// the moment the response returns — background work stalls wherever it happened to be
+// (observed: stuck at SCORED, never reaching SUSPENDED). So when running serverless we
+// must DRIVE the real workflow to its next durable checkpoint INSIDE the request. This
+// is not faking progress: it is the same real run.start()/run.resume() awaited to the
+// point Mastra persists (suspend or terminal) instead of left dangling. Env-gated so
+// local dev/smoke/e2e keep their instant-return + live-poll behavior unchanged.
+const DRIVE_IN_REQUEST = !!process.env.VERCEL || process.env.SENTINEL_AWAIT_WORKFLOW === '1';
+
+/** Start a Sentinel run. Returns once the run is SUSPENDED/terminal on serverless,
+ *  or immediately on a persistent server (the UI polls /api/runs/[id]). */
 export async function startSentinelRun(fault: FaultInput, user: SessionUser): Promise<{ runId: string; correlationId: string }> {
   await ensureSeeded();
   const mastra = getMastra();
@@ -65,7 +77,8 @@ export async function startSentinelRun(fault: FaultInput, user: SessionUser): Pr
     technicianId: user.sub, authLevel: user.authLevel,
   };
 
-  void run
+  // run.start() resolves when the workflow suspends at the HITL gate (or terminates).
+  const started = run
     .start({ inputData: initial })
     .then((result) => {
       // status: 'suspended' at the HITL gate is the expected mid-state.
@@ -79,6 +92,8 @@ export async function startSentinelRun(fault: FaultInput, user: SessionUser): Pr
         `Workflow error: ${String(err)}`);
     });
 
+  if (DRIVE_IN_REQUEST) await started; // serverless: reach the suspend gate before responding
+
   return { runId: run.runId, correlationId };
 }
 
@@ -88,12 +103,16 @@ export async function resumeSentinelRun(
   resumeData: { approved: boolean; technicianId: string; notes?: string },
 ): Promise<{ ok: boolean; error?: string }> {
   const doResume = async (handle: { resume: (args: { step: string; resumeData: unknown }) => Promise<unknown> }) => {
-    void handle
+    // resume() runs the post-gate steps (execute → post-mortem → write-back) to DONE.
+    const resumed = handle
       .resume({ step: APPROVAL_STEP_ID, resumeData })
       .catch((err) => {
         patchRun(runId, { stage: 'FAILED', finishedAt: new Date().toISOString() },
           `Resume error: ${String(err)}`);
       });
+    // Serverless: drive resume to DONE in-request, else the frozen instance would
+    // strand the post-mortem + memory write-back (the failure the demo hits on Vercel).
+    if (DRIVE_IN_REQUEST) await resumed;
   };
 
   // Fast path: the live handle is still in memory (same process, incl. dev HMR).

@@ -5,6 +5,10 @@ import { FaultInput } from '@/lib/types';
 import { requireAuth, rateLimit, parseBody } from '@/lib/auth';
 import { startSentinelRun } from '@/mastra';
 
+// On serverless, startSentinelRun drives the workflow to its SUSPENDED gate within
+// this request (Vercel freezes the instance once we respond). Give it headroom.
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const limited = rateLimit(req);
   if (limited) return limited;
