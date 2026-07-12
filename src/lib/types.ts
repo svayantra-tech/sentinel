@@ -147,6 +147,21 @@ export interface SentinelRunView {
   finishedAt?: string;
 }
 
+// ── HITL approval authority (FR-08/PRD §11) ──────────────────────────────────
+// The minimum auth level required to APPROVE a suspended run. A corrected
+// runbook that the safety gate had to intervene on — or a high/critical-severity
+// fault — is safety-critical work that demands senior sign-off, so a junior
+// (L1) technician can view and reject/escalate but not authorise it. Pure and
+// shared so the API (enforcement) and the technician UI (affordance) agree.
+export function requiredApprovalLevel(
+  run: Pick<SentinelRunView, 'fault' | 'safety'>,
+): 1 | 2 | 3 {
+  if (run.fault.severity === 'critical') return 3;
+  const hadBlock = run.safety?.violations.some((v) => v.severity === 'block') ?? false;
+  if (run.fault.severity === 'high' || hadBlock) return 2;
+  return 1;
+}
+
 // ── Auth (FR-13) ─────────────────────────────────────────────────────────────
 export interface SessionUser {
   sub: string;

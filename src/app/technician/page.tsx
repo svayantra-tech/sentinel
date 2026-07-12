@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState } from 'react';
 import { api, usePoll, useSession } from '@/lib/client';
-import type { SentinelRunView } from '@/lib/types';
+import { requiredApprovalLevel, type SentinelRunView } from '@/lib/types';
 import type { TechnicianSummary } from '@/lib/analytics';
 
 export default function TechnicianPage() {
@@ -77,6 +77,8 @@ export default function TechnicianPage() {
         {suspended.map((run) => {
           const rb = run.correctedRunbook ?? run.runbook;
           const blocked = run.safety?.violations.filter((v) => v.severity === 'block') ?? [];
+          const required = requiredApprovalLevel(run);
+          const canApprove = user.authLevel >= required;
           return (
             <div key={run.runId} className="rounded-xl bg-ink/60 border border-amber/50 p-4 mb-4">
               <div className="flex items-center gap-2 mb-2">
@@ -107,17 +109,26 @@ export default function TechnicianPage() {
 
               <p className="text-[10px] text-muted mb-1 font-mono">est. {rb?.estimatedMinutes} min · scorer relevance {run.scorecard?.relevance} / safety {run.scorecard?.safety} / completeness {run.scorecard?.completeness}</p>
 
+              {!canApprove && (
+                <div className="rounded-lg border border-amber/50 bg-amber/10 p-2.5 mb-3 text-[11px] text-amber">
+                  🔒 Requires L{required}+ sign-off — this is safety-critical work. You are L{user.authLevel}. A senior technician or supervisor must approve; you may reject or escalate.
+                </div>
+              )}
               <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="notes (optional)"
                 className="w-full bg-navy border border-dim rounded-lg px-3 py-2 text-xs mb-3" />
               <div className="flex gap-2">
-                <button disabled={busy === run.runId} onClick={() => decide(run.runId, true)} className="btn btn-teal flex-1">
+                <button disabled={busy === run.runId || !canApprove} title={canApprove ? '' : `Requires L${required}+`}
+                  onClick={() => decide(run.runId, true)}
+                  className={`btn flex-1 ${canApprove ? 'btn-teal' : 'btn-ghost opacity-50 cursor-not-allowed'}`}>
                   ✓ Approve &amp; resume
                 </button>
                 <button disabled={busy === run.runId} onClick={() => decide(run.runId, false)} className="btn btn-danger flex-1">
                   ✕ Reject
                 </button>
               </div>
-              <p className="text-[10px] text-muted/70 mt-2 text-center font-mono">approval resumes the suspended Mastra workflow</p>
+              <p className="text-[10px] text-muted/70 mt-2 text-center font-mono">
+                {canApprove ? 'approval resumes the suspended Mastra workflow' : `L${required}+ required to authorise · you are L${user.authLevel}`}
+              </p>
             </div>
           );
         })}

@@ -18,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span className="text-muted text-xs font-mono hidden sm:inline">// factory SRE</span>
             </a>
             <nav className="ml-auto flex items-center gap-1 text-sm">
+              <a href="/about" className="px-3 py-1.5 rounded-lg text-muted hover:text-teal hover:bg-dim/40">About</a>
               <a href="/" className="px-3 py-1.5 rounded-lg text-muted hover:text-teal hover:bg-dim/40">Operations</a>
               <a href="/live" className="px-3 py-1.5 rounded-lg text-muted hover:text-teal hover:bg-dim/40">Live</a>
               <a href="/fleet" className="px-3 py-1.5 rounded-lg text-muted hover:text-teal hover:bg-dim/40">Fleet</a>

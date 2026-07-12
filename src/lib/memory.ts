@@ -416,12 +416,14 @@ export async function retrieveContext(opts: {
       attrs: {
         collection: COLLECTIONS.runbooks, backend: store.backend,
         'filter.equipment_type': opts.equipmentType,
-        'filter.skill_level_required_lte': opts.authLevel, limit: 2,
+        'filter.skill_level_required_lte': opts.authLevel, limit: 6,
       },
     },
     // PRD §11: retrieval itself enforces authorisation — a L1 technician
-    // never even *sees* a danger-rated L2 procedure.
-    () => store.search<RunbookPayload>(COLLECTIONS.runbooks, vector, 2, {
+    // never even *sees* a danger-rated L2/L3 procedure. Limit 6 (> the per-
+    // equipment runbook count) so the auth ceiling — not an arbitrary top-k —
+    // is what differentiates levels: L1 ⊂ L2 ⊂ L3 monotonically.
+    () => store.search<RunbookPayload>(COLLECTIONS.runbooks, vector, 6, {
       must: [
         { key: 'equipment_type', match: { value: opts.equipmentType } },
         { key: 'skill_level_required', range: { lte: opts.authLevel } },

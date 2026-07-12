@@ -429,6 +429,19 @@ export const RUNBOOK_LIBRARY: RunbookPayload[] = [
     ],
   },
   {
+    kind: 'runbook', equipment_type: 'centrifugal_pump', fault_category: 'rotor_removal',
+    title: 'Rotor de-coupling & pull (HV isolation — supervisor-authorised)',
+    skill_level_required: 3, estimated_minutes: 240, safety_rating: 'danger',
+    steps: [
+      'Supervisor sign-off + permit-to-work before any HV work — L3 authorisation required.',
+      'Full LOTO per manual 2.1 PLUS motor HV isolation and earth per 2.4; prove dead.',
+      'Decouple driver, remove coupling spacer, and support the rotor on a rated lift.',
+      'Withdraw the rotating element; inspect wear rings, shaft, and balance datum.',
+      'Reassemble to OEM clearances, re-couple, and re-align cold + hot per 7.5.',
+      'Supervised recommission: bump test, staged load, full vibration signature log.',
+    ],
+  },
+  {
     kind: 'runbook', equipment_type: 'compressor', fault_category: 'oil_carryover',
     title: 'GA75 separator element & scavenge service',
     skill_level_required: 2, estimated_minutes: 150, safety_rating: 'danger',

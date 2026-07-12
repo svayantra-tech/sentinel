@@ -3,8 +3,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth, rateLimit, parseBody } from '@/lib/auth';
-import { resumeSentinelRun } from '@/mastra';
+import { resumeSentinelRun, getRunView } from '@/mastra';
 import { getRun } from '@/lib/run-registry';
+import { requiredApprovalLevel } from '@/lib/types';
 
 const ApproveBody = z.object({
   approved: z.boolean(),
@@ -27,6 +28,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const reg = getRun(params.id);
   if (reg && reg.view.stage !== 'SUSPENDED') {
     return NextResponse.json({ error: `Run is ${reg.view.stage}, not SUSPENDED` }, { status: 409 });
+  }
+
+  // Approval authority (PRD §11): only APPROVING safety-critical work is gated —
+  // a junior may still reject/escalate. Derive the required level from the run
+  // (rehydrates from durable storage when the in-memory registry is cold).
+  if (body.data.approved) {
+    const view = reg?.view ?? (await getRunView(params.id));
+    if (view) {
+      const required = requiredApprovalLevel(view);
+      if (auth.user.authLevel < required) {
+        return NextResponse.json(
+          { error: `Approval requires auth level L${required}. ${auth.user.name} is L${auth.user.authLevel} — a senior technician or supervisor must sign off on safety-critical work. You may reject or escalate.` },
+          { status: 403 },
+        );
+      }
+    }
   }
 
   const result = await resumeSentinelRun(params.id, {

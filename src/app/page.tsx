@@ -128,7 +128,10 @@ function Dashboard({ user, logout }: { user: ClientUser; logout: () => void }) {
           <p className="text-muted text-sm">Signed in as <span className="text-teal">{user.name}</span> (auth L{user.authLevel}) — retrieval is filtered to your level</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={resetDemo} className="btn btn-ghost">Reset Demo</button>
+          {/* Reset is a destructive admin action — supervisor (L3) only. */}
+          {user.authLevel >= 3 && (
+            <button onClick={resetDemo} className="btn btn-ghost">Reset Demo</button>
+          )}
           <button onClick={logout} className="btn btn-ghost">Sign out</button>
         </div>
       </div>
