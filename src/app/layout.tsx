@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import SentinelAgent from '@/components/SentinelAgent';
 
 export const metadata: Metadata = {
   title: 'Sentinel — The Factory SRE',
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
         {children}
+        <SentinelAgent />
         <footer className="mx-auto max-w-7xl px-4 py-6 text-[11px] text-muted/70 font-mono">
           Mastra workflows · Qdrant memory · Enkrypt AI safety — 100% TypeScript · HiDevs × Mastra Hackathon 2026
         </footer>
